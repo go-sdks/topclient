@@ -66,6 +66,8 @@ func (impl *signImpl) Sign(values url.Values, signMethod SignMethod) (err error)
 		values.Set(key, value)
 	}
 
+	values.Set("format", "json")
+
 	fnSetNE("v", "2.0")
 	fnSetNE("sign_method", string(signMethod))
 	fnSetNE("app_key", impl.appKey)
