@@ -20,8 +20,15 @@ const (
 	GatewayURLHTTPS = "https://eco.taobao.com/router/rest"
 )
 
+type DContext struct {
+	ReqURL   string
+	ReqBody  []byte
+	RespBody []byte
+}
+
 type SDK interface {
 	DoRequest(ctx context.Context, req url.Values, resp interface{}) error
+	DoRequestEx(ctx context.Context, req url.Values, resp interface{}, dCtx *DContext) (err error)
 }
 
 func New(appKey, appSecret string) SDK {
@@ -49,6 +56,10 @@ type topSDKImpl struct {
 }
 
 func (impl *topSDKImpl) DoRequest(ctx context.Context, req url.Values, resp interface{}) (err error) {
+	return impl.DoRequestEx(ctx, req, resp, nil)
+}
+
+func (impl *topSDKImpl) DoRequestEx(ctx context.Context, req url.Values, resp interface{}, dCtx *DContext) (err error) {
 	err = impl.sign.Sign(req, signer.SignMethodMD5)
 	if err != nil {
 		return
@@ -57,6 +68,11 @@ func (impl *topSDKImpl) DoRequest(ctx context.Context, req url.Values, resp inte
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", impl.gatewayURL, strings.NewReader(req.Encode()))
 	if err != nil {
 		return
+	}
+
+	if dCtx != nil {
+		dCtx.ReqURL = impl.gatewayURL
+		dCtx.ReqBody = []byte(req.Encode())
 	}
 
 	httpReq.Header.Add("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
@@ -71,6 +87,10 @@ func (impl *topSDKImpl) DoRequest(ctx context.Context, req url.Values, resp inte
 	data, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
 		return
+	}
+
+	if dCtx != nil {
+		dCtx.RespBody = data
 	}
 
 	err = json.Unmarshal(data, &resp)
