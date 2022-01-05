@@ -20,10 +20,13 @@ const (
 	GatewayURLHTTPS = "https://eco.taobao.com/router/rest"
 )
 
+type FNDoHTTP func(proc func(client *http.Client))
+
 type DContext struct {
 	ReqURL   string
 	ReqBody  []byte
 	RespBody []byte
+	FNDoHTTP FNDoHTTP
 }
 
 type SDK interface {
@@ -32,10 +35,10 @@ type SDK interface {
 }
 
 func New(appKey, appSecret string) SDK {
-	return NewEx(GatewayURLHTTP, appKey, appSecret)
+	return NewEx(GatewayURLHTTP, appKey, appSecret, nil)
 }
 
-func NewEx(gatewayURL, appKey, appSecret string) SDK {
+func NewEx(gatewayURL, appKey, appSecret string, fnDoHTTP FNDoHTTP) SDK {
 	tr := &http.Transport{
 		IdleConnTimeout:     90 * time.Second,
 		MaxIdleConnsPerHost: 1000,
@@ -46,6 +49,7 @@ func NewEx(gatewayURL, appKey, appSecret string) SDK {
 		gatewayURL: gatewayURL,
 		sign:       signer.NewSinger(appKey, appSecret),
 		httpCli:    &http.Client{Transport: tr, Timeout: 3 * time.Second},
+		FNDoHTTP:   fnDoHTTP,
 	}
 }
 
@@ -53,6 +57,7 @@ type topSDKImpl struct {
 	gatewayURL string
 	sign       signer.Signer
 	httpCli    *http.Client
+	FNDoHTTP   FNDoHTTP
 }
 
 func (impl *topSDKImpl) DoRequest(ctx context.Context, req url.Values, resp interface{}) (err error) {
@@ -77,14 +82,26 @@ func (impl *topSDKImpl) DoRequestEx(ctx context.Context, req url.Values, resp in
 
 	httpReq.Header.Add("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
 
-	httpResp, err := impl.httpCli.Do(httpReq)
-	if err != nil {
-		return
+	fnDo := func(client *http.Client) (data []byte, err error) {
+		httpResp, err := client.Do(httpReq)
+		if err != nil {
+			return
+		}
+		defer httpResp.Body.Close()
+
+		return ioutil.ReadAll(httpResp.Body)
 	}
 
-	defer httpResp.Body.Close()
+	var data []byte
 
-	data, err := ioutil.ReadAll(httpResp.Body)
+	if impl.FNDoHTTP != nil {
+		impl.FNDoHTTP(func(client *http.Client) {
+			data, err = fnDo(client)
+		})
+	} else {
+		data, err = fnDo(impl.httpCli)
+	}
+
 	if err != nil {
 		return
 	}
